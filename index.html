@@ -90,7 +90,6 @@
       function setCount(n) {
         currentCount = Number.isFinite(n) ? n : 0;
         counterEl.textContent = currentCount;
-        localStorage.setItem("swearCount", currentCount); // zapisz w pamięci przeglądarki
       }
 
       function log(msg) {
@@ -119,9 +118,6 @@
         } catch (e) {
           console.error(e);
           log("Could not load count from worker.");
-          // Jeśli nie działa Worker, załaduj z localStorage
-          const local = localStorage.getItem("swearCount");
-          if (local) setCount(parseInt(local));
         }
       }
 
@@ -133,11 +129,10 @@
             body: JSON.stringify({ delta }),
           });
           const j = await r.json();
-          setCount(j.count ?? currentCount + delta);
+          setCount(j.count ?? currentCount);
         } catch (e) {
           console.error(e);
-          setCount(currentCount + delta); // fallback: lokalnie
-          log("Error incrementing on worker, saved locally.");
+          log("Error incrementing on worker.");
         }
       }
 
@@ -149,8 +144,7 @@
           log("Counter reset.");
         } catch (e) {
           console.error(e);
-          setCount(0);
-          log("Error resetting counter, reset locally.");
+          log("Error resetting counter.");
         }
       }
 
@@ -179,15 +173,21 @@
               recognizing &&
               (ev.error === "no-speech" || ev.error === "network" || ev.error === "aborted")
             ) {
-              try { recognition.stop(); } catch (_) {}
-              try { recognition.start(); } catch (_) {}
+              try {
+                recognition.stop();
+              } catch (_) {}
+              try {
+                recognition.start();
+              } catch (_) {}
             }
           };
 
           recognition.onend = () => {
             if (recognizing) {
               log("Recognition ended, restarting…");
-              try { recognition.start(); } catch (e) {
+              try {
+                recognition.start();
+              } catch (e) {
                 console.error(e);
                 log("Restart failed.");
               }
@@ -218,7 +218,9 @@
 
       function stopRecognition() {
         recognizing = false;
-        try { recognition && recognition.stop(); } catch (_) {}
+        try {
+          recognition && recognition.stop();
+        } catch (_) {}
         listenBtn.classList.remove("active");
         listenBtn.textContent = "🎙️ Start listening";
         log("Listening stopped.");
@@ -229,13 +231,7 @@
       );
       resetBtn.addEventListener("click", resetCount);
 
-      // 🔸 Przy starcie: wczytaj z localStorage zanim zapytasz Workera
-      const saved = localStorage.getItem("swearCount");
-      if (saved) {
-        setCount(parseInt(saved));
-        log(`Loaded saved count: ${saved}`);
-      }
-
+      // Default state: not listening
       listenBtn.textContent = "🎙️ Start listening";
       log("Click 'Start listening' to begin.");
       fetchCount();

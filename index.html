@@ -62,42 +62,41 @@
     const startBtn = document.getElementById("startBtn");
     let count = 0;
 
-    // your GitHub audio files
+    // audio files from your new repo
     const sounds = Array.from({ length: 16 }, (_, i) =>
-      `https://raw.githubusercontent.com/mariadabrowskam/swearjar/main/${i + 1}.MP3`
+      `https://raw.githubusercontent.com/goodwitchmery/swear-jar/main/${i + 1}.MP3`
     );
 
-    // English swear words + common variants and misspellings
+    // common English swear words (with misspellings)
     const swears = [
-      "fuck", "fck", "fak", "fack", "fakk", "fuc", "fock", "fucking", "fucker", "motherfucker", "mf",
-      "shit", "shiet", "shitty", "sheet", "shiit", "shyt", "shid", "bullshit", "bullsh", "bulszit",
-      "bitch", "bish", "bich", "bichh", "beech", "betch", "bitsh",
-      "asshole", "ashole", "ass", "azz", "arse", "ashol", "azzhole", "assh", "azzhole",
-      "bastard", "bastar", "bastad", "basturt", "basterd",
-      "crap", "krap", "crab",
-      "damn", "dammit", "damnit", "daymn", "damn it",
-      "dick", "dik", "d1ck", "deek", "dikk", "diek",
-      "cock", "kock", "kok", "cok", "coq", "cohk", "kawk",
-      "pussy", "pusy", "pusi", "poosi", "poosy", "pusee", "pusey",
-      "slut", "sloot", "slatt", "slet",
-      "whore", "hore", "hoar", "hoer", "whoar", "horr",
-      "cum", "cumming", "came", "kom", "coom",
-      "blowjob", "bj", "blo job", "blowj", "blojb",
-      "boobs", "boob", "bobs", "boobz", "boobies", "tits", "titties", "titty", "teets",
-      "balls", "ballz", "bollocks", "bolox", "boloks", "bollok", "bollox", "balz",
-      "hell", "hehl", "heel", "hel",
-      "wanker", "wank", "wankr", "wankah", "wankerz",
-      "jerk", "jerkoff", "jerkin", "jerked",
-      "suck", "sucks", "suk", "sux", "sook",
-      "hoe", "ho", "hoee", "hoh", "hoeah",
-      "craphead", "shithead", "fuckhead", "dickhead", "asshat",
-      "twat", "twot", "twatt", "twet",
-      "prick", "prik", "prikk", "preek",
-      "retard", "retarded", "reetard", "ritard", "retart",
-      "dumbass", "stupidass", "fatass", "lazyass",
-      "cunt", "cnt", "kunt", "kant", "c0nt", "coont",
-      "motherfucking", "goddamn", "goddammit", "holyshit",
-      "bullshitting", "dipshit", "jackass", "pieceofshit"
+      "fuck","fck","fak","fack","fakk","fuc","fock","fucking","fucker","motherfucker","mf",
+      "shit","shiet","shitty","sheet","shiit","shyt","bullshit","bullsh","shid",
+      "bitch","bish","bich","beech","betch","bitsh",
+      "asshole","ashole","ass","azz","arse","ashol","azzhole",
+      "bastard","bastar","bastad","basterd",
+      "crap","krap",
+      "damn","dammit","damnit","damn it",
+      "dick","dik","d1ck","deek","dikk","diek",
+      "cock","kock","kok","cok","coq","cohk","kawk",
+      "pussy","pusy","pusi","poosi","poosy","pusee","pusey",
+      "slut","sloot","slet",
+      "whore","hore","hoar","hoer","whoar",
+      "cum","cumming","came","coom",
+      "boobs","boob","bobs","boobz","boobies","tits","titties","titty",
+      "balls","ballz","bollocks","bolox","boloks","bollox",
+      "hell","hehl","heel",
+      "wanker","wank","wankr","wankah","wankerz",
+      "jerk","jerkoff","jerkin",
+      "suck","sucks","suk","sux",
+      "hoe","ho","hoee",
+      "shithead","fuckhead","dickhead","asshat",
+      "twat","twatt","twet",
+      "prick","prik","prikk","preek",
+      "retard","retarded","reetard","ritard","retart",
+      "dumbass","stupidass","fatass","lazyass",
+      "cunt","cnt","kunt","kant","coont",
+      "motherfucking","goddamn","goddammit","holyshit",
+      "dipshit","jackass","pieceofshit"
     ];
 
     function playRandomSound() {

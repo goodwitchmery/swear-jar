@@ -21,12 +21,13 @@
     #counter {
       font-size: 3em;
       text-shadow: 0 0 20px orange;
-      transition: transform 0.2s;
       opacity: 1;
+      margin-bottom: 40px;
+      transition: transform 0.3s;
     }
 
     .pop {
-      transform: scale(1.2);
+      transform: scale(1.3);
     }
 
     button {
@@ -38,7 +39,7 @@
       padding: 15px 30px;
       font-size: 1.2em;
       cursor: pointer;
-      margin-top: 40px;
+      margin: 10px;
       transition: all 0.2s;
     }
 
@@ -46,121 +47,132 @@
       background-color: gold;
       transform: scale(1.1);
     }
+
+    #controls {
+      display: flex;
+      flex-direction: row;
+      justify-content: center;
+      gap: 15px;
+    }
   </style>
 </head>
 <body>
   <div id="counter">Swear count: 0</div>
-  <button id="startBtn">🎤 Start Listening</button>
+
+  <div id="controls">
+    <button id="toggleBtn">🎤 Start Listening</button>
+    <button id="resetBtn">🔄 Reset</button>
+  </div>
 
   <script>
   document.addEventListener("DOMContentLoaded", () => {
     const counterEl = document.getElementById("counter");
-    const startBtn = document.getElementById("startBtn");
-    let count = 0;
+    const toggleBtn = document.getElementById("toggleBtn");
+    const resetBtn = document.getElementById("resetBtn");
 
-    // audio files from your repo
-    const sounds = Array.from({ length: 16 }, (_, i) =>
-      `https://raw.githubusercontent.com/goodwitchmery/swear-jar/main/${i + 1}.MP3`
-    );
+    let count = parseInt(localStorage.getItem("swearCount")) || 0;
+    let recognition;
+    let isListening = false;
 
-    // English swear words + common variants
+    counterEl.textContent = `Swear count: ${count}`;
+
+    // English swear words
     const swears = [
-      "fuck","fck","fak","fack","fakk","fuc","fock","fucking","fucker","motherfucker","mf",
-      "shit","shiet","shitty","sheet","shiit","shyt","bullshit","bullsh","shid",
-      "bitch","bish","bich","beech","betch","bitsh",
-      "asshole","ashole","ass","azz","arse","ashol","azzhole",
-      "bastard","bastar","bastad","basterd",
-      "crap","krap",
-      "damn","dammit","damnit","damn it",
-      "dick","dik","d1ck","deek","dikk","diek",
-      "cock","kock","kok","cok","coq","cohk","kawk",
-      "pussy","pusy","pusi","poosi","poosy","pusee","pusey",
-      "slut","sloot","slet",
-      "whore","hore","hoar","hoer","whoar",
-      "cum","cumming","came","coom",
-      "boobs","boob","bobs","boobz","boobies","tits","titties","titty",
-      "balls","ballz","bollocks","bolox","boloks","bollox",
-      "hell","hehl","heel",
-      "wanker","wank","wankr","wankah","wankerz",
-      "jerk","jerkoff","jerkin",
-      "suck","sucks","suk","sux",
-      "hoe","ho","hoee",
-      "shithead","fuckhead","dickhead","asshat",
-      "twat","twatt","twet",
-      "prick","prik","prikk","preek",
-      "retard","retarded","reetard","ritard","retart",
-      "dumbass","stupidass","fatass","lazyass",
-      "cunt","cnt","kunt","kant","coont",
-      "motherfucking","goddamn","goddammit","holyshit",
-      "dipshit","jackass","pieceofshit"
+      "fuck","fck","fak","fack","fuc","fucking","fucker","motherfucker","mf",
+      "shit","shiet","shitty","bullshit","sheet","shyt","shiit",
+      "bitch","bish","bich","bitsh","beech",
+      "asshole","ass","azz","arse","ashole","azzhole",
+      "bastard","crap","damn","dammit","dick","cock","pussy","slut","whore","cum",
+      "boobs","tits","balls","hell","wanker","jerk","suck","hoe",
+      "twat","prick","retard","dumbass","stupidass","fatass","cunt",
+      "goddamn","holyshit","jackass","pieceofshit"
     ];
-
-    function playRandomSound() {
-      const randomSound = sounds[Math.floor(Math.random() * sounds.length)];
-      const audio = new Audio(randomSound);
-      audio.volume = 1.0;
-      audio.play().catch((e) => console.warn("🎵 Audio blocked:", e));
-    }
 
     function popCounter() {
       counterEl.classList.add("pop");
       setTimeout(() => counterEl.classList.remove("pop"), 400);
     }
 
-    async function startRecognition() {
-      startBtn.disabled = true;
-      startBtn.textContent = "🎤 Listening...";
+    function updateCounter(newCount) {
+      count = newCount;
+      counterEl.textContent = `Swear count: ${count}`;
+      localStorage.setItem("swearCount", count);
+    }
 
-      try {
-        await navigator.mediaDevices.getUserMedia({ audio: true });
+    function detectSwears(text) {
+      const cleaned = text.toLowerCase().replace(/[^\w* ]/g, " ");
+      const words = cleaned.split(/\s+/).filter(Boolean);
 
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SpeechRecognition) {
-          alert("Speech recognition not supported in this browser 😢");
-          return;
+      let swearsFound = 0;
+      for (const word of words) {
+        if (swears.some(s => word.includes(s)) || word.includes("***") || word.includes("****")) {
+          swearsFound++;
         }
+      }
 
-        const recognition = new SpeechRecognition();
-        recognition.lang = "en-US";
-        recognition.continuous = true;
-        recognition.interimResults = false;
-
-        recognition.onstart = () => console.log("🎧 Listening for English swears...");
-
-        recognition.onresult = (event) => {
-          const transcript = event.results[event.results.length - 1][0].transcript.toLowerCase().trim();
-          console.log("🗣️ Heard:", transcript);
-
-          const cleaned = transcript.replace(/[^\w*]/g, "");
-          const hasStars = /(\*{2,})/g.test(transcript);
-          const hasSwear = swears.some((word) => cleaned.includes(word));
-
-          if (hasSwear || hasStars) {
-            count++;
-            counterEl.textContent = `Swear count: ${count}`;
-            popCounter();
-            playRandomSound();
-            console.log("💥 Swear detected!");
-          }
-        };
-
-        recognition.onerror = (err) => {
-          console.warn("⚠️ Speech error:", err.error);
-        };
-
-        recognition.onend = () => {
-          console.log("🔁 Restarting recognition...");
-          recognition.start();
-        };
-
-        recognition.start();
-      } catch (err) {
-        console.error("❌ Microphone access failed:", err);
-        alert("Cannot access microphone 😢");
+      if (swearsFound > 0) {
+        updateCounter(count + swearsFound);
+        popCounter();
+        console.log(`💥 Detected ${swearsFound} swears!`);
       }
     }
 
-    startBtn.addEventListener("click", startRecognition);
+    function startRecognition() {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        alert("Speech recognition not supported in this browser 😢");
+        return;
+      }
+
+      recognition = new SpeechRecognition();
+      recognition.lang = "en-US";
+      recognition.continuous = true;
+      recognition.interimResults = false;
+
+      recognition.onresult = (event) => {
+        const transcript = event.results[event.results.length - 1][0].transcript.trim();
+        console.log("🗣️ Heard:", transcript);
+        detectSwears(transcript);
+      };
+
+      recognition.onerror = (err) => {
+        console.warn("⚠️ Speech error:", err.error);
+      };
+
+      recognition.onend = () => {
+        if (isListening) {
+          console.log("🔁 Restarting recognition...");
+          recognition.start();
+        }
+      };
+
+      recognition.start();
+      console.log("🎧 Listening...");
+    }
+
+    toggleBtn.addEventListener("click", async () => {
+      if (!isListening) {
+        try {
+          await navigator.mediaDevices.getUserMedia({ audio: true });
+          startRecognition();
+          isListening = true;
+          toggleBtn.textContent = "⏸️ Pause Listening";
+        } catch (err) {
+          console.error("❌ Mic error:", err);
+          alert("Microphone access failed 😢");
+        }
+      } else {
+        isListening = false;
+        recognition?.stop();
+        toggleBtn.textContent = "🎤 Resume Listening";
+        console.log("⏸️ Listening paused");
+      }
+    });
+
+    resetBtn.addEventListener("click", () => {
+      updateCounter(0);
+      console.log("🔄 Counter reset");
+    });
   });
   </script>
 </body>

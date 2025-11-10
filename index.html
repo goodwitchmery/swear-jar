@@ -1,119 +1,241 @@
-<script>
-document.addEventListener('DOMContentLoaded', () => {
-  const workerURL = "https://swearjar.goodwitchmery.workers.dev";
-
-  const counterEl = document.getElementById('counter');
-  const logEl     = document.getElementById('log');
-  const listenBtn = document.getElementById('listenBtn');
-  const resetBtn  = document.getElementById('resetBtn');
-
-  let recognizing = false;
-  let recognition = null;
-  let currentCount = 0;
-
-  const swearWords = [
-    "fuck","fucking","motherfucker","mf","shit","bullshit","bastard","bitch","slut","whore",
-    "ass","asshole","arse","arsehole","dick","dickhead","prick","cock","cocksucker",
-    "cunt","twat","wanker","bollocks","bloody","damn","crap","jerk","douche","freak",
-    "pussy","suck","sucks","sucker","fucker"
-  ];
-
-  function setCount(n){ currentCount = Number.isFinite(n)? n:0; counterEl.textContent = currentCount; }
-  function log(msg){ const ts=new Date().toLocaleTimeString(); logEl.innerHTML = `[${ts}] ${msg}<br>` + logEl.innerHTML; }
-
-  function countSwearsIn(text){
-    let delta=0, lower=text.toLowerCase();
-    for(const w of swearWords){
-      const rx = new RegExp(`\\b${w.replace(/[.*+?^${}()|[\\]\\\\]/g,'\\$&')}\\b`,'gi');
-      const m = lower.match(rx); if(m) delta += m.length;
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Swear Jar</title>
+  <style>
+    body {
+      background-color: black;
+      color: orange;
+      font-family: Arial, sans-serif;
+      text-align: center;
+      margin: 0;
+      padding: 0;
     }
-    const stars = lower.match(/\*{3,}/g); if(stars) delta += stars.length;
-    return delta;
-  }
-
-  async function fetchCount(){
-    try{ const r=await fetch(`${workerURL}/count`,{cache:'no-store'}); const j=await r.json(); setCount(j.count??0); }
-    catch(e){ console.error(e); log("Could not load count from worker."); }
-  }
-  async function incrementCount(delta){
-    try{
-      const r=await fetch(`${workerURL}/increment`,{
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({delta})
-      });
-      const j=await r.json(); setCount(j.count ?? currentCount);
-    }catch(e){ console.error(e); log("Error incrementing on worker."); }
-  }
-  async function resetCount(){
-    try{ const r=await fetch(`${workerURL}/reset`,{method:'POST'}); const j=await r.json(); setCount(j.count??0); log("Counter reset."); }
-    catch(e){ console.error(e); log("Error resetting counter."); }
-  }
-
-  async function startRecognition(){
-    try{
-      log("Requesting microphone access…");
-      await navigator.mediaDevices.getUserMedia({ audio:true });
-      log("Microphone access granted.");
-
-      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if(!SR){ log("Speech recognition not supported in this browser."); return; }
-
-      recognition = new SR();
-      recognition.lang = 'en-US';
-      recognition.continuous = true;
-      recognition.interimResults = false;
-
-      recognition.onstart = () => log("🎧 Listening for English swears…");
-      recognition.onerror = (ev) => {
-        console.error(ev);
-        log(`Recognition error: ${ev.error}`);
-        if(recognizing && (ev.error === 'no-speech' || ev.error === 'network' || ev.error === 'aborted')){
-          try{ recognition.stop(); }catch(_){}
-          try{ recognition.start(); }catch(_){}
-        }
-      };
-      recognition.onend = () => {
-        if(recognizing){
-          log("Recognition ended, restarting…");
-          try{ recognition.start(); }catch(e){ console.error(e); log("Restart failed."); }
-        }
-      };
-      recognition.onresult = async (ev) => {
-        const res = ev.results[ev.results.length-1][0];
-        const text = (res.transcript||'').trim();
-        if(!text) return;
-        log(`Heard: ${text}`);
-        const delta = countSwearsIn(text);
-        if(delta>0){
-          log(`🤬 Swear detected! +${delta}`);
-          await incrementCount(delta);
-        }
-      };
-
-      recognition.start();
-      recognizing = true;
-      listenBtn.classList.add('active');
-      listenBtn.textContent = '⏸️ Pause';
-    }catch(err){
-      console.error(err);
-      log(`Start failed: ${err?.message || err}`);
+    h1 {
+      font-size: 2.5em;
+      margin-top: 15vh;
+      text-shadow: 0 0 15px #ffb000;
     }
-  }
+    #counter {
+      font-size: 8em;
+      font-weight: bold;
+      text-shadow: 0 0 20px #ff9900;
+    }
+    .button-container {
+      margin-top: 30px;
+    }
+    button {
+      background-color: orange;
+      color: black;
+      font-size: 1.2em;
+      font-weight: bold;
+      padding: 10px 20px;
+      margin: 10px;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      box-shadow: 0 0 10px #ff9900;
+      transition: 0.2s;
+    }
+    button:hover {
+      background-color: #ffb733;
+    }
+    button.active {
+      background-color: #ffaa00;
+    }
+    #log {
+      margin-top: 40px;
+      font-size: 0.9em;
+      color: #ccc;
+      max-width: 80%;
+      margin-left: auto;
+      margin-right: auto;
+      text-align: left;
+    }
+  </style>
+</head>
+<body>
+  <h1>Swear count</h1>
+  <div id="counter">0</div>
 
-  function stopRecognition(){
-    recognizing = false;
-    try{ recognition && recognition.stop(); }catch(_){}
-    listenBtn.classList.remove('active');
-    listenBtn.textContent = '🎙️ Start listening';
-    log("Listening stopped.");
-  }
+  <div class="button-container">
+    <button id="listenBtn">🎙️ Start listening</button>
+    <button id="resetBtn">⟳ Reset</button>
+  </div>
 
-  listenBtn.addEventListener('click', () => recognizing ? stopRecognition() : startRecognition());
-  resetBtn.addEventListener('click', resetCount);
+  <div id="log">Click "Start listening" to begin.</div>
 
-  // 🔸 Domyślnie nie nasłuchuje
-  listenBtn.textContent = '🎙️ Start listening';
-  log("Click 'Start listening' to begin.");
-  fetchCount();
-});
-</script>
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const workerURL = "https://swearjar.goodwitchmery.workers.dev";
+
+      const counterEl = document.getElementById("counter");
+      const logEl = document.getElementById("log");
+      const listenBtn = document.getElementById("listenBtn");
+      const resetBtn = document.getElementById("resetBtn");
+
+      let recognizing = false;
+      let recognition = null;
+      let currentCount = 0;
+
+      const swearWords = [
+        "fuck","fucking","motherfucker","mf","shit","bullshit","bastard","bitch","slut","whore",
+        "ass","asshole","arse","arsehole","dick","dickhead","prick","cock","cocksucker",
+        "cunt","twat","wanker","bollocks","bloody","damn","crap","jerk","douche","freak",
+        "pussy","suck","sucks","sucker","fucker"
+      ];
+
+      function setCount(n) {
+        currentCount = Number.isFinite(n) ? n : 0;
+        counterEl.textContent = currentCount;
+      }
+
+      function log(msg) {
+        const ts = new Date().toLocaleTimeString();
+        logEl.innerHTML = `[${ts}] ${msg}<br>` + logEl.innerHTML;
+      }
+
+      function countSwearsIn(text) {
+        let delta = 0;
+        const lower = text.toLowerCase();
+        for (const w of swearWords) {
+          const rx = new RegExp(`\\b${w.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}\\b`, "gi");
+          const m = lower.match(rx);
+          if (m) delta += m.length;
+        }
+        const stars = lower.match(/\*{3,}/g);
+        if (stars) delta += stars.length;
+        return delta;
+      }
+
+      async function fetchCount() {
+        try {
+          const r = await fetch(`${workerURL}/count`, { cache: "no-store" });
+          const j = await r.json();
+          setCount(j.count ?? 0);
+        } catch (e) {
+          console.error(e);
+          log("Could not load count from worker.");
+        }
+      }
+
+      async function incrementCount(delta) {
+        try {
+          const r = await fetch(`${workerURL}/increment`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ delta }),
+          });
+          const j = await r.json();
+          setCount(j.count ?? currentCount);
+        } catch (e) {
+          console.error(e);
+          log("Error incrementing on worker.");
+        }
+      }
+
+      async function resetCount() {
+        try {
+          const r = await fetch(`${workerURL}/reset`, { method: "POST" });
+          const j = await r.json();
+          setCount(j.count ?? 0);
+          log("Counter reset.");
+        } catch (e) {
+          console.error(e);
+          log("Error resetting counter.");
+        }
+      }
+
+      async function startRecognition() {
+        try {
+          log("Requesting microphone access…");
+          await navigator.mediaDevices.getUserMedia({ audio: true });
+          log("Microphone access granted.");
+
+          const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+          if (!SR) {
+            log("Speech recognition not supported in this browser.");
+            return;
+          }
+
+          recognition = new SR();
+          recognition.lang = "en-US";
+          recognition.continuous = true;
+          recognition.interimResults = false;
+
+          recognition.onstart = () => log("🎧 Listening for English swears…");
+          recognition.onerror = (ev) => {
+            console.error(ev);
+            log(`Recognition error: ${ev.error}`);
+            if (
+              recognizing &&
+              (ev.error === "no-speech" || ev.error === "network" || ev.error === "aborted")
+            ) {
+              try {
+                recognition.stop();
+              } catch (_) {}
+              try {
+                recognition.start();
+              } catch (_) {}
+            }
+          };
+
+          recognition.onend = () => {
+            if (recognizing) {
+              log("Recognition ended, restarting…");
+              try {
+                recognition.start();
+              } catch (e) {
+                console.error(e);
+                log("Restart failed.");
+              }
+            }
+          };
+
+          recognition.onresult = async (ev) => {
+            const res = ev.results[ev.results.length - 1][0];
+            const text = (res.transcript || "").trim();
+            if (!text) return;
+            log(`Heard: ${text}`);
+            const delta = countSwearsIn(text);
+            if (delta > 0) {
+              log(`🤬 Swear detected! +${delta}`);
+              await incrementCount(delta);
+            }
+          };
+
+          recognition.start();
+          recognizing = true;
+          listenBtn.classList.add("active");
+          listenBtn.textContent = "⏸️ Pause";
+        } catch (err) {
+          console.error(err);
+          log(`Start failed: ${err?.message || err}`);
+        }
+      }
+
+      function stopRecognition() {
+        recognizing = false;
+        try {
+          recognition && recognition.stop();
+        } catch (_) {}
+        listenBtn.classList.remove("active");
+        listenBtn.textContent = "🎙️ Start listening";
+        log("Listening stopped.");
+      }
+
+      listenBtn.addEventListener("click", () =>
+        recognizing ? stopRecognition() : startRecognition()
+      );
+      resetBtn.addEventListener("click", resetCount);
+
+      // Default state: not listening
+      listenBtn.textContent = "🎙️ Start listening";
+      log("Click 'Start listening' to begin.");
+      fetchCount();
+    });
+  </script>
+</body>
+</html>

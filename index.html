@@ -14,33 +14,38 @@
       padding: 0;
     }
     h1 {
-      font-size: 2.5em;
-      margin-top: 15vh;
+      font-size: 2.8em;
+      margin-top: 12vh;
       text-shadow: 0 0 15px #ffb000;
     }
     #counter {
       font-size: 8em;
       font-weight: bold;
-      text-shadow: 0 0 20px #ff9900;
+      text-shadow: 0 0 25px #ff9900;
+      margin-top: 10px;
     }
     .button-container {
-      margin-top: 30px;
+      margin-top: 40px;
     }
     button {
       background-color: orange;
       color: black;
-      font-size: 1.2em;
+      font-size: 1.4em;
       font-weight: bold;
-      padding: 10px 20px;
+      padding: 14px 32px;
       margin: 10px;
       border: none;
-      border-radius: 10px;
+      border-radius: 12px;
       cursor: pointer;
-      box-shadow: 0 0 10px #ff9900;
+      box-shadow: 0 0 12px #ff9900;
       transition: 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
     }
     button:hover {
       background-color: #ffb733;
+      box-shadow: 0 0 18px #ffb733;
     }
     button.active {
       background-color: #ffaa00;
@@ -53,6 +58,7 @@
       margin-left: auto;
       margin-right: auto;
       text-align: left;
+      white-space: pre-line;
     }
   </style>
 </head>
@@ -65,7 +71,7 @@
     <button id="resetBtn">⟳ Reset</button>
   </div>
 
-  <div id="log">Click "Start listening" to begin.</div>
+  <div id="log"></div>
 
   <script>
     document.addEventListener("DOMContentLoaded", () => {
@@ -80,6 +86,7 @@
       let recognition = null;
       let currentCount = 0;
 
+      // Wszystkie angielskie przekleństwa + to co miałaś wcześniej
       const swearWords = [
         "fuck","fucking","motherfucker","mf","shit","bullshit","bastard","bitch","slut","whore",
         "ass","asshole","arse","arsehole","dick","dickhead","prick","cock","cocksucker",
@@ -87,74 +94,133 @@
         "pussy","suck","sucks","sucker","fucker"
       ];
 
-      function setCount(n) {
-        currentCount = Number.isFinite(n) ? n : 0;
-        counterEl.textContent = currentCount;
-      }
+      // ---------- UI / LOGIC ----------
 
       function log(msg) {
         const ts = new Date().toLocaleTimeString();
-        logEl.innerHTML = `[${ts}] ${msg}<br>` + logEl.innerHTML;
+        logEl.textContent = `[${ts}] ${msg}\n` + logEl.textContent;
       }
 
+      function setCount(n) {
+        const safe = Number.isFinite(n) && n >= 0 ? n : 0;
+        currentCount = safe;
+        counterEl.textContent = String(safe);
+        // cache tylko pomocniczo (np. gdy Worker nie odpowie)
+        localStorage.setItem("swearCount_cache", String(safe));
+      }
+
+      // Liczenie przekleństw w tekście (wiele + gwiazdki)
       function countSwearsIn(text) {
-        let delta = 0;
+        if (!text) return 0;
         const lower = text.toLowerCase();
+        let delta = 0;
+
+        // słowa
         for (const w of swearWords) {
-          const rx = new RegExp(`\\b${w.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}\\b`, "gi");
+          const rx = new RegExp(
+            `\\b${w.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}\\b`,
+            "gi"
+          );
           const m = lower.match(rx);
           if (m) delta += m.length;
         }
+
+        // ciągi gwiazdek typu ****
         const stars = lower.match(/\*{3,}/g);
         if (stars) delta += stars.length;
+
         return delta;
       }
 
-      async function fetchCount() {
+      // ---------- WORKER: ŹRÓDŁO PRAWDY ----------
+
+      async function loadFromWorker() {
         try {
           const r = await fetch(`${workerURL}/count`, { cache: "no-store" });
+          if (!r.ok) throw new Error("Worker HTTP " + r.status);
           const j = await r.json();
-          setCount(j.count ?? 0);
+          const remote = parseInt(j.count, 10);
+          if (Number.isFinite(remote) && remote >= 0) {
+            setCount(remote);
+            log(`Loaded count from Worker: ${remote}`);
+          } else {
+            setCount(0);
+            log("Worker returned invalid count, using 0.");
+          }
         } catch (e) {
-          console.error(e);
-          log("Could not load count from worker.");
+          console.warn("Worker /count failed:", e);
+          const cached = parseInt(
+            localStorage.getItem("swearCount_cache") || "0",
+            10
+          );
+          setCount(Number.isFinite(cached) && cached >= 0 ? cached : 0);
+          log(
+            "Could not reach Worker. Using last cached local value: " +
+              currentCount
+          );
         }
       }
 
-      async function incrementCount(delta) {
+      async function incrementOnWorker(delta) {
+        if (delta <= 0) return;
         try {
           const r = await fetch(`${workerURL}/increment`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ delta }),
+            body: JSON.stringify({ delta })
           });
+          if (!r.ok) throw new Error("Worker HTTP " + r.status);
           const j = await r.json();
-          setCount(j.count ?? currentCount);
+          const remote = parseInt(j.count, 10);
+          if (Number.isFinite(remote) && remote >= 0) {
+            setCount(remote);
+            log(`Count updated: +${delta} → ${remote}`);
+          } else {
+            throw new Error("Invalid count from Worker");
+          }
         } catch (e) {
-          console.error(e);
-          log("Error incrementing on worker.");
+          console.error("Worker increment failed:", e);
+          log("Error talking to Worker. Count may be out of sync.");
         }
       }
 
-      async function resetCount() {
+      async function resetOnWorker() {
         try {
           const r = await fetch(`${workerURL}/reset`, { method: "POST" });
+          if (!r.ok) throw new Error("Worker HTTP " + r.status);
           const j = await r.json();
-          setCount(j.count ?? 0);
-          log("Counter reset.");
+          const remote = parseInt(j.count, 10);
+          if (Number.isFinite(remote) && remote >= 0) {
+            setCount(remote);
+            log("Counter reset.");
+          } else {
+            throw new Error("Invalid count from Worker");
+          }
         } catch (e) {
-          console.error(e);
-          log("Error resetting counter.");
+          console.error("Worker reset failed:", e);
+          log("Could not reset on Worker.");
         }
       }
 
+      // ---------- INIT ----------
+
+      (async function init() {
+        listenBtn.textContent = "🎙️ Start listening";
+        log('Click "Start listening" to begin.');
+        await loadFromWorker(); // Worker jest źródłem prawdy
+      })();
+
+      // ---------- SPEECH RECOGNITION ----------
+
       async function startRecognition() {
+        if (recognizing) return;
         try {
-          log("Requesting microphone access…");
+          log("Requesting microphone access...");
           await navigator.mediaDevices.getUserMedia({ audio: true });
           log("Microphone access granted.");
 
-          const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+          const SR =
+            window.SpeechRecognition || window.webkitSpeechRecognition;
           if (!SR) {
             log("Speech recognition not supported in this browser.");
             return;
@@ -165,32 +231,52 @@
           recognition.continuous = true;
           recognition.interimResults = false;
 
-          recognition.onstart = () => log("🎧 Listening for English swears…");
+          recognition.onstart = () => {
+            recognizing = true;
+            listenBtn.classList.add("active");
+            listenBtn.textContent = "⏸ Pause";
+            log("Listening for English swears...");
+          };
+
           recognition.onerror = (ev) => {
             console.error(ev);
             log(`Recognition error: ${ev.error}`);
             if (
               recognizing &&
-              (ev.error === "no-speech" || ev.error === "network" || ev.error === "aborted")
+              (ev.error === "no-speech" ||
+                ev.error === "network" ||
+                ev.error === "aborted")
             ) {
               try {
                 recognition.stop();
-              } catch (_) {}
+              } catch {}
               try {
                 recognition.start();
-              } catch (_) {}
+              } catch (e2) {
+                console.error(e2);
+                log("Restart failed.");
+                recognizing = false;
+                listenBtn.classList.remove("active");
+                listenBtn.textContent = "🎙️ Start listening";
+              }
             }
           };
 
           recognition.onend = () => {
             if (recognizing) {
-              log("Recognition ended, restarting…");
+              log("Recognition ended, restarting...");
               try {
                 recognition.start();
               } catch (e) {
                 console.error(e);
                 log("Restart failed.");
+                recognizing = false;
+                listenBtn.classList.remove("active");
+                listenBtn.textContent = "🎙️ Start listening";
               }
+            } else {
+              listenBtn.classList.remove("active");
+              listenBtn.textContent = "🎙️ Start listening";
             }
           };
 
@@ -202,17 +288,17 @@
             const delta = countSwearsIn(text);
             if (delta > 0) {
               log(`🤬 Swear detected! +${delta}`);
-              await incrementCount(delta);
+              await incrementOnWorker(delta);
             }
           };
 
           recognition.start();
-          recognizing = true;
-          listenBtn.classList.add("active");
-          listenBtn.textContent = "⏸️ Pause";
         } catch (err) {
           console.error(err);
-          log(`Start failed: ${err?.message || err}`);
+          log(`Start failed: ${err.message || err}`);
+          recognizing = false;
+          listenBtn.classList.remove("active");
+          listenBtn.textContent = "🎙️ Start listening";
         }
       }
 
@@ -220,21 +306,20 @@
         recognizing = false;
         try {
           recognition && recognition.stop();
-        } catch (_) {}
+        } catch {}
         listenBtn.classList.remove("active");
         listenBtn.textContent = "🎙️ Start listening";
         log("Listening stopped.");
       }
 
-      listenBtn.addEventListener("click", () =>
-        recognizing ? stopRecognition() : startRecognition()
-      );
-      resetBtn.addEventListener("click", resetCount);
+      listenBtn.addEventListener("click", () => {
+        recognizing ? stopRecognition() : startRecognition();
+      });
 
-      // Default state: not listening
-      listenBtn.textContent = "🎙️ Start listening";
-      log("Click 'Start listening' to begin.");
-      fetchCount();
+      resetBtn.addEventListener("click", () => {
+        stopRecognition();
+        resetOnWorker();
+      });
     });
   </script>
 </body>

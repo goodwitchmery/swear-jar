@@ -1,233 +1,140 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Swear Jar</title>
-  <style>
-    :root { --accent:#ffa31a; --bg:#000; --text:#fff; }
-    html,body{ height:100%; margin:0; background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,"Helvetica Neue",Arial,"Noto Sans","Apple Color Emoji","Segoe UI Emoji"; }
-    .wrap{ min-height:100%; display:flex; align-items:center; justify-content:center; }
-    .col{ text-align:center; padding:24px; }
-    .title{ font-size:clamp(26px,4vw,42px); margin:0 0 22px; text-shadow:0 0 18px rgba(255,163,26,.35); }
-    .count{ font-size:clamp(52px,10vw,120px); font-weight:800; color:var(--accent); text-shadow:0 0 28px rgba(255,163,26,.35); letter-spacing:.02em; margin:0 0 16px; }
-    .row{ display:flex; gap:12px; justify-content:center; flex-wrap:wrap; }
-    button{ cursor:pointer; border:0; padding:12px 18px; border-radius:12px; font-weight:700; font-size:16px; }
-    .primary{ background:var(--accent); color:#241400; }
-    .ghost{ background:transparent; color:var(--text); outline:2px solid #333; }
-    .log{ margin-top:18px; font-size:14px; color:#aaa; max-width:900px; }
-    .muted{ opacity:.85 }
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <div class="col">
-      <h1 class="title">Swear count</h1>
-      <div id="count" class="count">0</div>
+<script>
+const workerURL = "https://swearjar.goodwitchmery.workers.dev";
 
-      <div class="row">
-        <button id="toggleBtn" class="primary">🎙️ Listening…</button>
-        <button id="resetBtn" class="ghost">↺ Reset</button>
-      </div>
+const counterDisplay = document.getElementById("counter");
+const log = document.getElementById("log");
+const listenBtn = document.getElementById("listenBtn");
+const resetBtn = document.getElementById("resetBtn");
 
-      <div class="log muted" id="log"></div>
-    </div>
-  </div>
+let recognizing = false;
+let recognition;
+let swearCount = 0;
 
-  <script>
-    // === KONFIG ===
-    const WORKER_URL = 'https://swearjar.goodwitchmery.workers.dev'; // <- zmień jeśli masz inny adres Workera
+// lista przekleństw (rozszerzona)
+const swearWords = [
+  "fuck","shit","bitch","asshole","bastard","dick","pussy","slut","fucker",
+  "cock","cunt","bollocks","wanker","motherfucker","prick","damn","crap",
+  "bullshit","arse","retard","jerk","douche","freak","bloody","twat",
+  "dickhead","whore","fucking"
+];
 
-    // Rozszerzona lista wulgaryzmów EN (odmiany i słowa złożone)
-    // Staram się łapać odmiany: -s, -es, -er, -ers, -ing, -ed, zlepy typu motherfucker itd.
-    const swearAlternations = [
-      'fuck(?:s|er|ers|ing|ed)?',
-      'motherfucker(?:s)?',
-      'fucking',
-      'shit(?:s|ty|head|heads|ty-ass)?',
-      'bullshit',
-      'ass(?:hole|holes)?',
-      'bitch(?:es|y)?',
-      'bastard(?:s)?',
-      'dick(?:s|head|heads)?',
-      'cock(?:s)?',
-      'pussy(?:s|ies)?',
-      'slut(?:s|ty)?',
-      'whore(?:s)?',
-      'cunt(?:s)?',
-      'prick(?:s)?',
-      'twat(?:s)?',
-      'wanker(?:s)?',
-      'bollock(?:s)?',
-      'bugger(?:s|ing)?',
-      'damn(?:ed|ing)?',
-      'crap(?:s|py)?',
-      'dipshit(?:s)?',
-      'jackass(?:es)?',
-      'moron(?:s)?',
-      'idiot(?:s)?'
-    ];
+// 🔸 uruchomienie rozpoznawania mowy
+function startRecognition() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    logMessage("Speech recognition not supported 😢");
+    return;
+  }
 
-    // Z tego budujemy jedno globalne wyrażenie (z granicami słowa)
-    const swearRegex = new RegExp('\\b(?:' + swearAlternations.join('|') + ')\\b', 'gi');
+  recognition = new SpeechRecognition();
+  recognition.lang = "en-US";
+  recognition.continuous = true;
+  recognition.interimResults = false;
 
-    // Cenzurowane gwiazdkami:
-    // 1) Całe słowa z samych gwiazdek min. "***"
-    const onlyStarsRegex = /\*{3,}/g;
-    // 2) Słowo z literami i gwiazdkami (np. f***, b*tch, sh**)
-    const mixedStarsRegex = /\b(?=[a-z*]{3,})[a-z]*\*+[a-z*]*\b/gi;
-
-    // ====== UI ELEMENTS ======
-    const countEl = document.getElementById('count');
-    const toggleBtn = document.getElementById('toggleBtn');
-    const resetBtn  = document.getElementById('resetBtn');
-    const logEl     = document.getElementById('log');
-
-    // ====== STAN ======
-    let isListening = true;
-    let recognition = null;
-
-    // ====== Worker API helpers ======
-    async function fetchCount() {
-      const r = await fetch(`${WORKER_URL}/count`);
-      const { count } = await r.json();
-      return count ?? 0;
+  recognition.onstart = () => logMessage("🎙️ Listening for English swears...");
+  recognition.onend = () => {
+    if (recognizing) {
+      logMessage("Restarting recognition...");
+      recognition.start();
     }
-    async function incrementBy(delta) {
-      if (delta <= 0) return;
-      const r = await fetch(`${WORKER_URL}/increment`, {
-        method: 'POST',
-        headers: { 'Content-Type':'application/json' },
-        body: JSON.stringify({ delta })
-      });
-      const { count } = await r.json();
-      return count ?? 0;
+  };
+
+  recognition.onerror = (e) => {
+    logMessage(`Error: ${e.error}`);
+    if (e.error === "no-speech") recognition.start();
+  };
+
+  recognition.onresult = async (event) => {
+    const transcript = event.results[event.results.length - 1][0].transcript.toLowerCase().trim();
+    logMessage(`Heard: ${transcript}`);
+
+    const delta = countSwears(transcript);
+    if (delta > 0) {
+      logMessage(`🤬 Swear detected! +${delta}`);
+      await incrementCount(delta);
     }
-    async function resetCount() {
-      const r = await fetch(`${WORKER_URL}/reset`, { method: 'POST' });
-      const { count } = await r.json();
-      return count ?? 0;
-    }
+  };
 
-    // ====== Liczenie przekleństw w tekście ======
-    function countSwearsInText(text) {
-      if (!text) return 0;
-      const lower = text.toLowerCase();
+  recognition.start();
+  recognizing = true;
+  listenBtn.textContent = "⏸️ Pause";
+  listenBtn.classList.add("active");
+}
 
-      const listMatches = lower.match(swearRegex) || [];
-      // mixedStarsRegex też łapie zwykłe słowa; odfiltruj te bez gwiazdek, żeby nie dublować
-      const mixed = (lower.match(mixedStarsRegex) || []).filter(w => w.includes('*'));
-      const onlyStars = lower.match(onlyStarsRegex) || [];
+function stopRecognition() {
+  recognizing = false;
+  if (recognition) recognition.stop();
+  listenBtn.textContent = "🎙️ Listening...";
+  listenBtn.classList.remove("active");
+  logMessage("Listening stopped.");
+}
 
-      // Dodatkowo licz „słowa” typu "* * *" (asteryskowe frazy z przerwami),
-      // czasem rozpoznawanie robi "******* ***" -> już łapiemy obie części, więc OK.
+function countSwears(text) {
+  let count = 0;
+  for (const word of swearWords) {
+    const regex = new RegExp(`\\b${word}\\b`, "gi");
+    const matches = text.match(regex);
+    if (matches) count += matches.length;
+  }
+  // Licz też gwiazdki typu "****"
+  const censoredMatches = text.match(/\*{3,}/g);
+  if (censoredMatches) count += censoredMatches.length;
+  return count;
+}
 
-      const total = listMatches.length + mixed.length + onlyStars.length;
-      return total;
-    }
+// 🔸 Logi
+function logMessage(msg) {
+  const now = new Date().toLocaleTimeString();
+  log.innerHTML = `[${now}] ${msg}<br>` + log.innerHTML;
+}
 
-    function appendLog(msg) {
-      const time = new Date().toLocaleTimeString();
-      logEl.textContent = `[${time}] ${msg}\n` + logEl.textContent;
-    }
+// 🔸 Worker API
+async function updateCountDisplay() {
+  try {
+    const res = await fetch(workerURL + "/count");
+    const data = await res.json();
+    swearCount = data.count ?? 0;
+    counterDisplay.textContent = swearCount;
+  } catch (err) {
+    console.error("Error loading count:", err);
+  }
+}
 
-    // ====== Speech Recognition (Web Speech API) ======
-    function ensureRecognition() {
-      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (!SR) {
-        appendLog('SpeechRecognition not supported in this browser.');
-        toggleBtn.disabled = true;
-        return null;
-      }
-      const rec = new SR();
-      rec.lang = 'en-US';
-      rec.continuous = true;
-      rec.interimResults = false;
-      rec.maxAlternatives = 1;
-      return rec;
-    }
-
-    async function startListening() {
-      if (!recognition) recognition = ensureRecognition();
-      if (!recognition) return;
-
-      recognition.onstart = () => appendLog('Listening for English swears…');
-      recognition.onerror = (e) => appendLog(`Recognition error: ${e.error}`);
-      recognition.onend = () => {
-        if (isListening) {
-          // w Edge czasem się kończy – wznawiamy
-          recognition.start();
-        } else {
-          appendLog('Listening stopped.');
-        }
-      };
-      recognition.onresult = async (e) => {
-        for (let i = e.resultIndex; i < e.results.length; i++) {
-          const res = e.results[i];
-          if (!res.isFinal) continue;
-          const spoken = res[0].transcript.trim();
-          if (!spoken) continue;
-
-          appendLog(`Heard: ${spoken}`);
-          const delta = countSwearsInText(spoken);
-          if (delta > 0) {
-            appendLog(`Swear detected! +${delta}`);
-            try {
-              const newCount = await incrementBy(delta);
-              countEl.textContent = newCount;
-            } catch (err) {
-              appendLog('Error incrementing on worker.');
-            }
-          }
-        }
-      };
-
-      try {
-        recognition.start();
-      } catch {_=>{}}
-    }
-
-    function stopListening() {
-      if (recognition) {
-        try { recognition.stop(); } catch {}
-      }
-    }
-
-    // ====== Handlers ======
-    toggleBtn.addEventListener('click', () => {
-      isListening = !isListening;
-      if (isListening) {
-        toggleBtn.textContent = '🎙️ Listening…';
-        toggleBtn.className = 'primary';
-        startListening();
-      } else {
-        toggleBtn.textContent = '⏸️ Paused';
-        toggleBtn.className = 'ghost';
-        stopListening();
-      }
+async function incrementCount(delta) {
+  try {
+    const res = await fetch(workerURL + "/increment", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ delta })
     });
+    const data = await res.json();
+    swearCount = data.count ?? swearCount;
+    counterDisplay.textContent = swearCount;
+  } catch (err) {
+    console.error("Increment error:", err);
+  }
+}
 
-    resetBtn.addEventListener('click', async () => {
-      try {
-        const v = await resetCount();
-        countEl.textContent = v;
-        appendLog('Counter reset.');
-      } catch (e) {
-        appendLog('Error while resetting.');
-      }
-    });
+async function resetCount() {
+  try {
+    const res = await fetch(workerURL + "/reset", { method: "POST" });
+    const data = await res.json();
+    swearCount = data.count ?? 0;
+    counterDisplay.textContent = swearCount;
+    logMessage("Counter reset.");
+  } catch (err) {
+    console.error("Reset error:", err);
+  }
+}
 
-    // ====== INIT ======
-    (async () => {
-      try {
-        const v = await fetchCount();
-        countEl.textContent = v;
-      } catch {
-        appendLog('Could not load count from worker.');
-      }
-      // auto-start nasłuchu
-      startListening();
-    })();
-  </script>
-</body>
-</html>
+// 🔸 przyciski
+listenBtn.addEventListener("click", () => {
+  if (recognizing) stopRecognition();
+  else startRecognition();
+});
+
+resetBtn.addEventListener("click", resetCount);
+
+// 🔸 start
+updateCountDisplay();
+</script>

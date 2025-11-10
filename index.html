@@ -1,140 +1,251 @@
-<script>
-const workerURL = "https://swearjar.goodwitchmery.workers.dev";
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Swear Jar</title>
+  <style>
+    :root {
+      --bg:#000;
+      --fg:#fff7e6;
+      --accent:#ffa500;
+    }
+    html,body {
+      height:100%;
+      margin:0;
+      background:#000;
+      color:var(--fg);
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif;
+    }
+    .wrap {
+      min-height:100%;
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      justify-content:center;
+      gap:24px;
+      text-align:center;
+      padding:32px 16px 80px;
+    }
+    h1 {
+      margin:0;
+      font-weight:800;
+      letter-spacing:.02em;
+      text-shadow:0 0 16px #ffb30055;
+    }
+    .title {
+      font-size:42px;
+      color:#ffe6b3;
+      text-shadow:0 0 30px #ffb30055;
+    }
+    .count {
+      font-size:140px;
+      line-height:1;
+      color:var(--accent);
+      text-shadow:0 0 25px #ffb300, 0 0 60px #ffb30055;
+      font-weight:900;
+      letter-spacing:.02em;
+      min-width: 1ch;
+    }
+    .row { display:flex; gap:14px; flex-wrap:wrap; justify-content:center; }
+    button {
+      background:#ffb300;
+      color:#2b1900;
+      border:none;
+      padding:14px 22px;
+      font-size:18px;
+      font-weight:700;
+      border-radius:12px;
+      cursor:pointer;
+      box-shadow:0 8px 18px #ffb30033, inset 0 0 0 1px #00000022;
+      transition:transform .06s ease, filter .2s ease, background .2s ease;
+    }
+    button:hover { filter:brightness(1.05); transform:translateY(-1px); }
+    button:active { transform:translateY(0); }
+    button.secondary { background:#2b2b2b; color:#eee; }
+    button.active { background:#ffcc33; }
+    .log {
+      width:min(920px, 92vw);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      font-size:14px;
+      color:#c7c7c7;
+      opacity:.9;
+      text-align:left;
+      margin-top:10px;
+      line-height:1.4;
+      max-height: 28vh;
+      overflow:auto;
+      border-top:1px solid #1d1d1d;
+      padding-top:12px;
+    }
+    .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1 class="title">Swear count</h1>
+    <div id="counter" class="count" aria-live="polite">0</div>
 
-const counterDisplay = document.getElementById("counter");
-const log = document.getElementById("log");
-const listenBtn = document.getElementById("listenBtn");
-const resetBtn = document.getElementById("resetBtn");
+    <div class="row">
+      <button id="listenBtn" type="button">🎙️ Listening...</button>
+      <button id="resetBtn" type="button" class="secondary">↻ Reset</button>
+    </div>
 
-let recognizing = false;
-let recognition;
-let swearCount = 0;
+    <div id="log" class="log" aria-live="polite"></div>
+  </div>
 
-// lista przekleństw (rozszerzona)
-const swearWords = [
-  "fuck","shit","bitch","asshole","bastard","dick","pussy","slut","fucker",
-  "cock","cunt","bollocks","wanker","motherfucker","prick","damn","crap",
-  "bullshit","arse","retard","jerk","douche","freak","bloody","twat",
-  "dickhead","whore","fucking"
-];
+  <script>
+  document.addEventListener('DOMContentLoaded', () => {
+    // ====== KONFIG ======
+    const workerURL = "https://swearjar.goodwitchmery.workers.dev";
 
-// 🔸 uruchomienie rozpoznawania mowy
-function startRecognition() {
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRecognition) {
-    logMessage("Speech recognition not supported 😢");
-    return;
-  }
+    // ====== ELEMENTY ======
+    const counterEl = document.getElementById('counter');
+    const logEl     = document.getElementById('log');
+    const listenBtn = document.getElementById('listenBtn');
+    const resetBtn  = document.getElementById('resetBtn');
 
-  recognition = new SpeechRecognition();
-  recognition.lang = "en-US";
-  recognition.continuous = true;
-  recognition.interimResults = false;
+    // ====== STAN ======
+    let recognizing = false;
+    let recognition = null;
+    let currentCount = 0;
 
-  recognition.onstart = () => logMessage("🎙️ Listening for English swears...");
-  recognition.onend = () => {
-    if (recognizing) {
-      logMessage("Restarting recognition...");
+    // Słownik przekleństw (ang., rozszerzony)
+    const swearWords = [
+      "fuck","fucking","motherfucker","mf","shit","bullshit","bastard","bitch","slut","whore",
+      "ass","asshole","arse","arsehole","dick","dickhead","prick","cock","cocksucker",
+      "cunt","twat","wanker","bollocks","bloody","damn","crap","jerk","douche","freak",
+      "pussy","suck","sucks","sucker","fucker"
+    ];
+
+    // ====== UI ======
+    function setCount(n) {
+      currentCount = Number.isFinite(n) ? n : 0;
+      counterEl.textContent = currentCount;
+    }
+    function log(msg) {
+      const ts = new Date().toLocaleTimeString();
+      logEl.innerHTML = `[${ts}] ${msg}<br>` + logEl.innerHTML;
+    }
+
+    // ====== LICZENIE ======
+    function countSwearsIn(text) {
+      let delta = 0;
+      const lower = text.toLowerCase();
+
+      // jawne słowa (pełne słowa)
+      for (const w of swearWords) {
+        const rx = new RegExp(`\\b${w.replace(/[.*+?^${}()|[\\]\\\\]/g,'\\$&')}\\b`, 'gi');
+        const m = lower.match(rx);
+        if (m) delta += m.length;
+      }
+      // cenzurowane gwiazdki
+      const stars = lower.match(/\*{3,}/g);
+      if (stars) delta += stars.length;
+
+      return delta;
+    }
+
+    // ====== WORKER API ======
+    async function fetchCount() {
+      try {
+        const r = await fetch(`${workerURL}/count`, { cache: 'no-store' });
+        const j = await r.json();
+        setCount(j.count ?? 0);
+      } catch (e) {
+        console.error(e);
+        log("Could not load count from worker.");
+      }
+    }
+    async function incrementCount(delta) {
+      try {
+        const r = await fetch(`${workerURL}/increment`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ delta })
+        });
+        const j = await r.json();
+        setCount(j.count ?? currentCount);
+      } catch (e) {
+        console.error(e);
+        log("Error incrementing on worker.");
+      }
+    }
+    async function resetCount() {
+      try {
+        const r = await fetch(`${workerURL}/reset`, { method: 'POST' });
+        const j = await r.json();
+        setCount(j.count ?? 0);
+        log("Counter reset.");
+      } catch (e) {
+        console.error(e);
+        log("Error resetting counter.");
+      }
+    }
+
+    // ====== ROZPOZNAWANIE MOWY ======
+    function startRecognition() {
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SR) {
+        log("Speech recognition not supported in this browser.");
+        return;
+      }
+      recognition = new SR();
+      recognition.lang = 'en-US';
+      recognition.continuous = true;
+      recognition.interimResults = false;
+
+      recognition.onstart = () => log("Listening for English swears...");
+      recognition.onerror = (ev) => {
+        log(`Error: ${ev.error}`);
+        if (ev.error === 'no-speech' && recognizing) {
+          recognition.stop(); // szybki restart
+          recognition.start();
+        }
+      };
+      recognition.onend = () => {
+        if (recognizing) {
+          log("Restart recognition...");
+          recognition.start();
+        }
+      };
+      recognition.onresult = async (ev) => {
+        const res = ev.results[ev.results.length - 1][0];
+        const text = (res.transcript || '').trim();
+        if (!text) return;
+        log(`Heard: ${text}`);
+
+        const delta = countSwearsIn(text);
+        if (delta > 0) {
+          log(`Swear detected! +${delta}`);
+          await incrementCount(delta);
+        }
+      };
+
       recognition.start();
+      recognizing = true;
+      listenBtn.classList.add('active');
+      listenBtn.textContent = '⏸️ Pause';
     }
-  };
 
-  recognition.onerror = (e) => {
-    logMessage(`Error: ${e.error}`);
-    if (e.error === "no-speech") recognition.start();
-  };
-
-  recognition.onresult = async (event) => {
-    const transcript = event.results[event.results.length - 1][0].transcript.toLowerCase().trim();
-    logMessage(`Heard: ${transcript}`);
-
-    const delta = countSwears(transcript);
-    if (delta > 0) {
-      logMessage(`🤬 Swear detected! +${delta}`);
-      await incrementCount(delta);
+    function stopRecognition() {
+      recognizing = false;
+      if (recognition) recognition.stop();
+      listenBtn.classList.remove('active');
+      listenBtn.textContent = '🎙️ Listening...';
+      log("Listening stopped.");
     }
-  };
 
-  recognition.start();
-  recognizing = true;
-  listenBtn.textContent = "⏸️ Pause";
-  listenBtn.classList.add("active");
-}
-
-function stopRecognition() {
-  recognizing = false;
-  if (recognition) recognition.stop();
-  listenBtn.textContent = "🎙️ Listening...";
-  listenBtn.classList.remove("active");
-  logMessage("Listening stopped.");
-}
-
-function countSwears(text) {
-  let count = 0;
-  for (const word of swearWords) {
-    const regex = new RegExp(`\\b${word}\\b`, "gi");
-    const matches = text.match(regex);
-    if (matches) count += matches.length;
-  }
-  // Licz też gwiazdki typu "****"
-  const censoredMatches = text.match(/\*{3,}/g);
-  if (censoredMatches) count += censoredMatches.length;
-  return count;
-}
-
-// 🔸 Logi
-function logMessage(msg) {
-  const now = new Date().toLocaleTimeString();
-  log.innerHTML = `[${now}] ${msg}<br>` + log.innerHTML;
-}
-
-// 🔸 Worker API
-async function updateCountDisplay() {
-  try {
-    const res = await fetch(workerURL + "/count");
-    const data = await res.json();
-    swearCount = data.count ?? 0;
-    counterDisplay.textContent = swearCount;
-  } catch (err) {
-    console.error("Error loading count:", err);
-  }
-}
-
-async function incrementCount(delta) {
-  try {
-    const res = await fetch(workerURL + "/increment", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ delta })
+    // ====== ZDARZENIA ======
+    listenBtn.addEventListener('click', () => {
+      if (recognizing) stopRecognition();
+      else startRecognition();
     });
-    const data = await res.json();
-    swearCount = data.count ?? swearCount;
-    counterDisplay.textContent = swearCount;
-  } catch (err) {
-    console.error("Increment error:", err);
-  }
-}
+    resetBtn.addEventListener('click', resetCount);
 
-async function resetCount() {
-  try {
-    const res = await fetch(workerURL + "/reset", { method: "POST" });
-    const data = await res.json();
-    swearCount = data.count ?? 0;
-    counterDisplay.textContent = swearCount;
-    logMessage("Counter reset.");
-  } catch (err) {
-    console.error("Reset error:", err);
-  }
-}
-
-// 🔸 przyciski
-listenBtn.addEventListener("click", () => {
-  if (recognizing) stopRecognition();
-  else startRecognition();
-});
-
-resetBtn.addEventListener("click", resetCount);
-
-// 🔸 start
-updateCountDisplay();
-</script>
+    // ====== INIT ======
+    fetchCount(); // pobierz stan z Workera na start
+  });
+  </script>
+</body>
+</html>

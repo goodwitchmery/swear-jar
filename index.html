@@ -21,11 +21,7 @@
     #counter {
       font-size: 3em;
       text-shadow: 0 0 20px orange;
-      transition: transform 0.2s, opacity 0.5s;
-      opacity: 0;
-    }
-
-    .show {
+      transition: transform 0.2s;
       opacity: 1;
     }
 
@@ -62,12 +58,12 @@
     const startBtn = document.getElementById("startBtn");
     let count = 0;
 
-    // audio files from your new repo
+    // audio files from your repo
     const sounds = Array.from({ length: 16 }, (_, i) =>
       `https://raw.githubusercontent.com/goodwitchmery/swear-jar/main/${i + 1}.MP3`
     );
 
-    // common English swear words (with misspellings)
+    // English swear words + common variants
     const swears = [
       "fuck","fck","fak","fack","fakk","fuc","fock","fucking","fucker","motherfucker","mf",
       "shit","shiet","shitty","sheet","shiit","shyt","bullshit","bullsh","shid",
@@ -107,9 +103,8 @@
     }
 
     function popCounter() {
-      counterEl.classList.add("show", "pop");
+      counterEl.classList.add("pop");
       setTimeout(() => counterEl.classList.remove("pop"), 400);
-      setTimeout(() => counterEl.classList.remove("show"), 3000);
     }
 
     async function startRecognition() {

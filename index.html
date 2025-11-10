@@ -14,33 +14,38 @@
       padding: 0;
     }
     h1 {
-      font-size: 2.5em;
-      margin-top: 15vh;
+      font-size: 2.8em;
+      margin-top: 12vh;
       text-shadow: 0 0 15px #ffb000;
     }
     #counter {
       font-size: 8em;
       font-weight: bold;
-      text-shadow: 0 0 20px #ff9900;
+      text-shadow: 0 0 25px #ff9900;
+      margin-top: 10px;
     }
     .button-container {
-      margin-top: 30px;
+      margin-top: 40px;
     }
     button {
       background-color: orange;
       color: black;
-      font-size: 1.2em;
+      font-size: 1.4em;
       font-weight: bold;
-      padding: 10px 20px;
+      padding: 14px 32px;
       margin: 10px;
       border: none;
-      border-radius: 10px;
+      border-radius: 12px;
       cursor: pointer;
-      box-shadow: 0 0 10px #ff9900;
+      box-shadow: 0 0 12px #ff9900;
       transition: 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
     }
     button:hover {
       background-color: #ffb733;
+      box-shadow: 0 0 18px #ffb733;
     }
     button.active {
       background-color: #ffaa00;
@@ -53,6 +58,7 @@
       margin-left: auto;
       margin-right: auto;
       text-align: left;
+      white-space: pre-line;
     }
   </style>
 </head>
@@ -65,7 +71,7 @@
     <button id="resetBtn">⟳ Reset</button>
   </div>
 
-  <div id="log">Click "Start listening" to begin.</div>
+  <div id="log"></div>
 
   <script>
     document.addEventListener("DOMContentLoaded", () => {
@@ -87,76 +93,118 @@
         "pussy","suck","sucks","sucker","fucker"
       ];
 
-      function setCount(n) {
-        currentCount = Number.isFinite(n) ? n : 0;
-        counterEl.textContent = currentCount;
-        localStorage.setItem("swearCount", currentCount); // zapisz w pamięci przeglądarki
-      }
-
       function log(msg) {
         const ts = new Date().toLocaleTimeString();
-        logEl.innerHTML = `[${ts}] ${msg}<br>` + logEl.innerHTML;
+        logEl.textContent = `[${ts}] ${msg}\n` + logEl.textContent;
       }
 
+      function setCount(n) {
+        const safe = Number.isFinite(n) && n >= 0 ? n : 0;
+        currentCount = safe;
+        counterEl.textContent = String(safe);
+        localStorage.setItem("swearCount", String(safe));
+      }
+
+      // Liczenie przekleństw w danym tekście
       function countSwearsIn(text) {
-        let delta = 0;
+        if (!text) return 0;
         const lower = text.toLowerCase();
+        let delta = 0;
+
         for (const w of swearWords) {
-          const rx = new RegExp(`\\b${w.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}\\b`, "gi");
+          const rx = new RegExp(
+            `\\b${w.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}\\b`,
+            "gi"
+          );
           const m = lower.match(rx);
           if (m) delta += m.length;
         }
+
         const stars = lower.match(/\*{3,}/g);
         if (stars) delta += stars.length;
+
         return delta;
       }
 
-      async function fetchCount() {
-        try {
-          const r = await fetch(`${workerURL}/count`, { cache: "no-store" });
-          const j = await r.json();
-          setCount(j.count ?? 0);
-        } catch (e) {
-          console.error(e);
-          log("Could not load count from worker.");
-          // Jeśli nie działa Worker, załaduj z localStorage
-          const local = localStorage.getItem("swearCount");
-          if (local) setCount(parseInt(local));
-        }
-      }
-
+      // Inkrementacja: najpierw lokalnie, potem próbujemy Worker
       async function incrementCount(delta) {
+        if (delta <= 0) return;
+        const localTarget = currentCount + delta;
+        setCount(localTarget);
+
         try {
           const r = await fetch(`${workerURL}/increment`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ delta }),
+            body: JSON.stringify({ delta })
           });
+          if (!r.ok) throw new Error("Worker HTTP " + r.status);
           const j = await r.json();
-          setCount(j.count ?? currentCount + delta);
+          if (Number.isFinite(j.count) && j.count >= localTarget) {
+            setCount(j.count);
+            log(`Synced with Worker: ${j.count}`);
+          } else {
+            log("Worker responded, keeping local count.");
+          }
         } catch (e) {
-          console.error(e);
-          setCount(currentCount + delta); // fallback: lokalnie
-          log("Error incrementing on worker, saved locally.");
+          console.warn("Worker increment failed:", e);
+          log("Worker increment failed, using local only.");
         }
       }
 
+      // Reset: zerujemy lokalnie i próbujemy wyzerować Worker
       async function resetCount() {
+        setCount(0);
         try {
           const r = await fetch(`${workerURL}/reset`, { method: "POST" });
+          if (!r.ok) throw new Error("Worker HTTP " + r.status);
           const j = await r.json();
-          setCount(j.count ?? 0);
+          if (Number.isFinite(j.count)) {
+            setCount(j.count);
+          }
           log("Counter reset.");
         } catch (e) {
-          console.error(e);
-          setCount(0);
-          log("Error resetting counter, reset locally.");
+          console.warn("Worker reset failed:", e);
+          log("Worker reset failed, local reset only.");
         }
       }
 
-      async function startRecognition() {
+      // Przy starcie: odczyt lokalny + ewentualna synchronizacja w górę z Workerem
+      (async function init() {
+        const saved = parseInt(localStorage.getItem("swearCount") || "0", 10);
+        if (Number.isFinite(saved) && saved > 0) {
+          setCount(saved);
+          log(`Loaded saved count: ${saved}`);
+        } else {
+          setCount(0);
+          log("No saved count, starting from 0.");
+        }
+
+        log('Click "Start listening" to begin.');
+
         try {
-          log("Requesting microphone access…");
+          const r = await fetch(`${workerURL}/count`, { cache: "no-store" });
+          if (!r.ok) throw new Error("Worker HTTP " + r.status);
+          const j = await r.json();
+          const remote = parseInt(j.count, 10);
+          if (Number.isFinite(remote) && remote > currentCount) {
+            setCount(remote);
+            log(`Synced count from Worker: ${remote}`);
+          } else {
+            log("Worker count not higher than local, keeping local value.");
+          }
+        } catch (e) {
+          console.warn("Worker /count failed:", e);
+          log("Could not sync from Worker, using local value only.");
+        }
+      })();
+
+      // --- Speech recognition ---
+
+      async function startRecognition() {
+        if (recognizing) return;
+        try {
+          log("Requesting microphone access...");
           await navigator.mediaDevices.getUserMedia({ audio: true });
           log("Microphone access granted.");
 
@@ -171,26 +219,43 @@
           recognition.continuous = true;
           recognition.interimResults = false;
 
-          recognition.onstart = () => log("🎧 Listening for English swears…");
+          recognition.onstart = () => {
+            recognizing = true;
+            listenBtn.classList.add("active");
+            listenBtn.textContent = "⏸ Pause";
+            log("Listening for English swears...");
+          };
+
           recognition.onerror = (ev) => {
             console.error(ev);
             log(`Recognition error: ${ev.error}`);
             if (
               recognizing &&
-              (ev.error === "no-speech" || ev.error === "network" || ev.error === "aborted")
+              (ev.error === "no-speech" ||
+                ev.error === "network" ||
+                ev.error === "aborted")
             ) {
-              try { recognition.stop(); } catch (_) {}
-              try { recognition.start(); } catch (_) {}
+              try { recognition.stop(); } catch {}
+              try { recognition.start(); } catch (e) {
+                console.error(e);
+                log("Restart failed.");
+              }
             }
           };
 
           recognition.onend = () => {
             if (recognizing) {
-              log("Recognition ended, restarting…");
+              log("Recognition ended, restarting...");
               try { recognition.start(); } catch (e) {
                 console.error(e);
                 log("Restart failed.");
+                recognizing = false;
+                listenBtn.classList.remove("active");
+                listenBtn.textContent = "🎙️ Start listening";
               }
+            } else {
+              listenBtn.classList.remove("active");
+              listenBtn.textContent = "🎙️ Start listening";
             }
           };
 
@@ -207,38 +272,31 @@
           };
 
           recognition.start();
-          recognizing = true;
-          listenBtn.classList.add("active");
-          listenBtn.textContent = "⏸️ Pause";
         } catch (err) {
           console.error(err);
-          log(`Start failed: ${err?.message || err}`);
+          log(`Start failed: ${err.message || err}`);
+          recognizing = false;
+          listenBtn.classList.remove("active");
+          listenBtn.textContent = "🎙️ Start listening";
         }
       }
 
       function stopRecognition() {
         recognizing = false;
-        try { recognition && recognition.stop(); } catch (_) {}
+        try { recognition && recognition.stop(); } catch {}
         listenBtn.classList.remove("active");
         listenBtn.textContent = "🎙️ Start listening";
         log("Listening stopped.");
       }
 
-      listenBtn.addEventListener("click", () =>
-        recognizing ? stopRecognition() : startRecognition()
-      );
-      resetBtn.addEventListener("click", resetCount);
+      listenBtn.addEventListener("click", () => {
+        recognizing ? stopRecognition() : startRecognition();
+      });
 
-      // 🔸 Przy starcie: wczytaj z localStorage zanim zapytasz Workera
-      const saved = localStorage.getItem("swearCount");
-      if (saved) {
-        setCount(parseInt(saved));
-        log(`Loaded saved count: ${saved}`);
-      }
-
-      listenBtn.textContent = "🎙️ Start listening";
-      log("Click 'Start listening' to begin.");
-      fetchCount();
+      resetBtn.addEventListener("click", () => {
+        stopRecognition();
+        resetCount();
+      });
     });
   </script>
 </body>

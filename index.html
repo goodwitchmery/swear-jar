@@ -1,223 +1,91 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Swear Jar</title>
-  <style>
-    :root {
-      --bg:#000;
-      --fg:#fff7e6;
-      --accent:#ffa500;
-    }
-    html,body {
-      height:100%;
-      margin:0;
-      background:#000;
-      color:var(--fg);
-      font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif;
-    }
-    .wrap {
-      min-height:100%;
-      display:flex;
-      flex-direction:column;
-      align-items:center;
-      justify-content:center;
-      gap:24px;
-      text-align:center;
-      padding:32px 16px 80px;
-    }
-    h1 {
-      margin:0;
-      font-weight:800;
-      letter-spacing:.02em;
-      text-shadow:0 0 16px #ffb30055;
-    }
-    .title {
-      font-size:42px;
-      color:#ffe6b3;
-      text-shadow:0 0 30px #ffb30055;
-    }
-    .count {
-      font-size:140px;
-      line-height:1;
-      color:var(--accent);
-      text-shadow:0 0 25px #ffb300, 0 0 60px #ffb30055;
-      font-weight:900;
-      letter-spacing:.02em;
-      min-width: 1ch;
-    }
-    .row { display:flex; gap:14px; flex-wrap:wrap; justify-content:center; }
-    button {
-      background:#ffb300;
-      color:#2b1900;
-      border:none;
-      padding:14px 22px;
-      font-size:18px;
-      font-weight:700;
-      border-radius:12px;
-      cursor:pointer;
-      box-shadow:0 8px 18px #ffb30033, inset 0 0 0 1px #00000022;
-      transition:transform .06s ease, filter .2s ease, background .2s ease;
-    }
-    button:hover { filter:brightness(1.05); transform:translateY(-1px); }
-    button:active { transform:translateY(0); }
-    button.secondary { background:#2b2b2b; color:#eee; }
-    button.active { background:#ffcc33; }
-    .log {
-      width:min(920px, 92vw);
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-      font-size:14px;
-      color:#c7c7c7;
-      opacity:.9;
-      text-align:left;
-      margin-top:10px;
-      line-height:1.4;
-      max-height: 28vh;
-      overflow:auto;
-      border-top:1px solid #1d1d1d;
-      padding-top:12px;
-    }
-    .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <h1 class="title">Swear count</h1>
-    <div id="counter" class="count" aria-live="polite">0</div>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const workerURL = "https://swearjar.goodwitchmery.workers.dev";
 
-    <div class="row">
-      <button id="listenBtn" type="button">🎙️ Listening...</button>
-      <button id="resetBtn" type="button" class="secondary">↻ Reset</button>
-    </div>
+  const counterEl = document.getElementById('counter');
+  const logEl     = document.getElementById('log');
+  const listenBtn = document.getElementById('listenBtn');
+  const resetBtn  = document.getElementById('resetBtn');
 
-    <div id="log" class="log" aria-live="polite"></div>
-  </div>
+  let recognizing = false;
+  let recognition = null;
+  let currentCount = 0;
 
-  <script>
-  document.addEventListener('DOMContentLoaded', () => {
-    // ====== KONFIG ======
-    const workerURL = "https://swearjar.goodwitchmery.workers.dev";
+  const swearWords = [
+    "fuck","fucking","motherfucker","mf","shit","bullshit","bastard","bitch","slut","whore",
+    "ass","asshole","arse","arsehole","dick","dickhead","prick","cock","cocksucker",
+    "cunt","twat","wanker","bollocks","bloody","damn","crap","jerk","douche","freak",
+    "pussy","suck","sucks","sucker","fucker"
+  ];
 
-    // ====== ELEMENTY ======
-    const counterEl = document.getElementById('counter');
-    const logEl     = document.getElementById('log');
-    const listenBtn = document.getElementById('listenBtn');
-    const resetBtn  = document.getElementById('resetBtn');
+  function setCount(n){ currentCount = Number.isFinite(n)? n:0; counterEl.textContent = currentCount; }
+  function log(msg){ const ts=new Date().toLocaleTimeString(); logEl.innerHTML = `[${ts}] ${msg}<br>` + logEl.innerHTML; }
 
-    // ====== STAN ======
-    let recognizing = false;
-    let recognition = null;
-    let currentCount = 0;
-
-    // Słownik przekleństw (ang., rozszerzony)
-    const swearWords = [
-      "fuck","fucking","motherfucker","mf","shit","bullshit","bastard","bitch","slut","whore",
-      "ass","asshole","arse","arsehole","dick","dickhead","prick","cock","cocksucker",
-      "cunt","twat","wanker","bollocks","bloody","damn","crap","jerk","douche","freak",
-      "pussy","suck","sucks","sucker","fucker"
-    ];
-
-    // ====== UI ======
-    function setCount(n) {
-      currentCount = Number.isFinite(n) ? n : 0;
-      counterEl.textContent = currentCount;
+  function countSwearsIn(text){
+    let delta=0, lower=text.toLowerCase();
+    for(const w of swearWords){
+      const rx = new RegExp(`\\b${w.replace(/[.*+?^${}()|[\\]\\\\]/g,'\\$&')}\\b`,'gi');
+      const m = lower.match(rx); if(m) delta += m.length;
     }
-    function log(msg) {
-      const ts = new Date().toLocaleTimeString();
-      logEl.innerHTML = `[${ts}] ${msg}<br>` + logEl.innerHTML;
-    }
+    const stars = lower.match(/\*{3,}/g); if(stars) delta += stars.length;
+    return delta;
+  }
 
-    // ====== LICZENIE ======
-    function countSwearsIn(text) {
-      let delta = 0;
-      const lower = text.toLowerCase();
+  async function fetchCount(){
+    try{ const r=await fetch(`${workerURL}/count`,{cache:'no-store'}); const j=await r.json(); setCount(j.count??0); }
+    catch(e){ console.error(e); log("Could not load count from worker."); }
+  }
+  async function incrementCount(delta){
+    try{
+      const r=await fetch(`${workerURL}/increment`,{
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({delta})
+      });
+      const j=await r.json(); setCount(j.count ?? currentCount);
+    }catch(e){ console.error(e); log("Error incrementing on worker."); }
+  }
+  async function resetCount(){
+    try{ const r=await fetch(`${workerURL}/reset`,{method:'POST'}); const j=await r.json(); setCount(j.count??0); log("Counter reset."); }
+    catch(e){ console.error(e); log("Error resetting counter."); }
+  }
 
-      // jawne słowa (pełne słowa)
-      for (const w of swearWords) {
-        const rx = new RegExp(`\\b${w.replace(/[.*+?^${}()|[\\]\\\\]/g,'\\$&')}\\b`, 'gi');
-        const m = lower.match(rx);
-        if (m) delta += m.length;
-      }
-      // cenzurowane gwiazdki
-      const stars = lower.match(/\*{3,}/g);
-      if (stars) delta += stars.length;
+  async function startRecognition(){
+    try{
+      log("Requesting microphone access…");
+      await navigator.mediaDevices.getUserMedia({ audio:true });
+      log("Microphone access granted.");
 
-      return delta;
-    }
-
-    // ====== WORKER API ======
-    async function fetchCount() {
-      try {
-        const r = await fetch(`${workerURL}/count`, { cache: 'no-store' });
-        const j = await r.json();
-        setCount(j.count ?? 0);
-      } catch (e) {
-        console.error(e);
-        log("Could not load count from worker.");
-      }
-    }
-    async function incrementCount(delta) {
-      try {
-        const r = await fetch(`${workerURL}/increment`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ delta })
-        });
-        const j = await r.json();
-        setCount(j.count ?? currentCount);
-      } catch (e) {
-        console.error(e);
-        log("Error incrementing on worker.");
-      }
-    }
-    async function resetCount() {
-      try {
-        const r = await fetch(`${workerURL}/reset`, { method: 'POST' });
-        const j = await r.json();
-        setCount(j.count ?? 0);
-        log("Counter reset.");
-      } catch (e) {
-        console.error(e);
-        log("Error resetting counter.");
-      }
-    }
-
-    // ====== ROZPOZNAWANIE MOWY ======
-    function startRecognition() {
       const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (!SR) {
-        log("Speech recognition not supported in this browser.");
-        return;
-      }
+      if(!SR){ log("Speech recognition not supported in this browser."); return; }
+
       recognition = new SR();
       recognition.lang = 'en-US';
       recognition.continuous = true;
       recognition.interimResults = false;
 
-      recognition.onstart = () => log("Listening for English swears...");
+      recognition.onstart = () => log("🎧 Listening for English swears…");
       recognition.onerror = (ev) => {
-        log(`Error: ${ev.error}`);
-        if (ev.error === 'no-speech' && recognizing) {
-          recognition.stop(); // szybki restart
-          recognition.start();
+        console.error(ev);
+        log(`Recognition error: ${ev.error}`);
+        if(recognizing && (ev.error === 'no-speech' || ev.error === 'network' || ev.error === 'aborted')){
+          try{ recognition.stop(); }catch(_){}
+          try{ recognition.start(); }catch(_){}
         }
       };
       recognition.onend = () => {
-        if (recognizing) {
-          log("Restart recognition...");
-          recognition.start();
+        if(recognizing){
+          log("Recognition ended, restarting…");
+          try{ recognition.start(); }catch(e){ console.error(e); log("Restart failed."); }
         }
       };
       recognition.onresult = async (ev) => {
-        const res = ev.results[ev.results.length - 1][0];
-        const text = (res.transcript || '').trim();
-        if (!text) return;
+        const res = ev.results[ev.results.length-1][0];
+        const text = (res.transcript||'').trim();
+        if(!text) return;
         log(`Heard: ${text}`);
-
         const delta = countSwearsIn(text);
-        if (delta > 0) {
-          log(`Swear detected! +${delta}`);
+        if(delta>0){
+          log(`🤬 Swear detected! +${delta}`);
           await incrementCount(delta);
         }
       };
@@ -226,26 +94,26 @@
       recognizing = true;
       listenBtn.classList.add('active');
       listenBtn.textContent = '⏸️ Pause';
+    }catch(err){
+      console.error(err);
+      log(`Start failed: ${err?.message || err}`);
     }
+  }
 
-    function stopRecognition() {
-      recognizing = false;
-      if (recognition) recognition.stop();
-      listenBtn.classList.remove('active');
-      listenBtn.textContent = '🎙️ Listening...';
-      log("Listening stopped.");
-    }
+  function stopRecognition(){
+    recognizing = false;
+    try{ recognition && recognition.stop(); }catch(_){}
+    listenBtn.classList.remove('active');
+    listenBtn.textContent = '🎙️ Start listening';
+    log("Listening stopped.");
+  }
 
-    // ====== ZDARZENIA ======
-    listenBtn.addEventListener('click', () => {
-      if (recognizing) stopRecognition();
-      else startRecognition();
-    });
-    resetBtn.addEventListener('click', resetCount);
+  listenBtn.addEventListener('click', () => recognizing ? stopRecognition() : startRecognition());
+  resetBtn.addEventListener('click', resetCount);
 
-    // ====== INIT ======
-    fetchCount(); // pobierz stan z Workera na start
-  });
-  </script>
-</body>
-</html>
+  // 🔸 Domyślnie nie nasłuchuje
+  listenBtn.textContent = '🎙️ Start listening';
+  log("Click 'Start listening' to begin.");
+  fetchCount();
+});
+</script>

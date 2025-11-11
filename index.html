@@ -6,36 +6,29 @@
   <title>Swear Jar</title>
   <style>
     body {
-      background-color: #000;
-      color: #ffa500;
+      background-color: black;
+      color: orange;
       font-family: Arial, sans-serif;
       text-align: center;
       margin: 0;
       padding: 0;
-      overflow-x: hidden;
     }
     h1 {
-      font-size: 3em;
-      margin-top: 10vh;
+      font-size: 2.8em;
+      margin-top: 12vh;
       text-shadow: 0 0 15px #ffb000;
-    }
-    #username-label {
-      font-size: 1.2em;
-      margin-top: 5px;
-      color: #ffe0a0;
     }
     #counter {
       font-size: 8em;
       font-weight: bold;
       text-shadow: 0 0 25px #ff9900;
-      margin-top: 20px;
     }
     .button-container {
       margin-top: 30px;
     }
     button {
-      background-color: #ffa500;
-      color: #000;
+      background-color: orange;
+      color: black;
       font-size: 1.2em;
       font-weight: bold;
       padding: 12px 26px;
@@ -44,17 +37,13 @@
       border-radius: 12px;
       cursor: pointer;
       box-shadow: 0 0 12px #ff9900;
-      transition: all 0.15s ease;
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
+      transition: 0.2s;
     }
     button:hover {
       background-color: #ffb733;
-      transform: translateY(-1px);
     }
     button.active {
-      background-color: #ffcc33;
+      background-color: #ffaa00;
     }
     #log {
       margin-top: 40px;
@@ -64,13 +53,78 @@
       margin-left: auto;
       margin-right: auto;
       text-align: left;
-      white-space: pre-wrap;
+      white-space: pre-line;
+    }
+
+    /* Auth modal */
+    #authModalOverlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.8);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+    }
+    #authModal {
+      background: #111;
+      padding: 24px 28px 18px;
+      border-radius: 14px;
+      box-shadow: 0 0 18px #ff9900;
+      max-width: 360px;
+      width: 90%;
+      color: #ffd27f;
+      text-align: left;
+      font-size: 0.95em;
+    }
+    #authModal h2 {
+      margin-top: 0;
+      margin-bottom: 8px;
+      color: #ffa500;
+      text-align: center;
+    }
+    #authModal label {
+      display: block;
+      margin-top: 8px;
+      font-size: 0.9em;
+    }
+    #authModal input {
+      width: 100%;
+      padding: 7px 9px;
+      margin-top: 3px;
+      border-radius: 6px;
+      border: 1px solid #555;
+      background: #000;
+      color: #ffd27f;
+    }
+    #authActions {
+      margin-top: 14px;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    #authActions button {
+      flex: 1;
+      font-size: 0.95em;
+      box-shadow: 0 0 8px #ff9900;
+    }
+    #authToggle {
+      margin-top: 6px;
+      font-size: 0.8em;
+      color: #aaa;
+      text-align: center;
+      cursor: pointer;
+    }
+    #authError {
+      margin-top: 6px;
+      font-size: 0.8em;
+      color: #ff7070;
+      min-height: 1em;
     }
   </style>
 </head>
 <body>
   <h1>Swear count</h1>
-  <div id="username-label"></div>
   <div id="counter">0</div>
 
   <div class="button-container">
@@ -80,33 +134,72 @@
 
   <div id="log">Click "Start listening" to begin.</div>
 
+  <!-- Auth modal -->
+  <div id="authModalOverlay" style="display:none;">
+    <div id="authModal">
+      <h2 id="authTitle">Create account</h2>
+      <div id="authDesc">
+        Set your unique streamer name. Only a–z, 0–9, _ and - , min. 3 chars.
+      </div>
+      <label>
+        Nick:
+        <input id="authUser" autocomplete="username" />
+      </label>
+      <label>
+        Password:
+        <input id="authPass" type="password" autocomplete="new-password" />
+      </label>
+      <label id="authPass2Label">
+        Repeat password:
+        <input id="authPass2" type="password" autocomplete="new-password" />
+      </label>
+      <div id="authError"></div>
+      <div id="authActions">
+        <button id="authPrimaryBtn">Create account</button>
+        <button id="authSecondaryBtn">Log in</button>
+      </div>
+      <div id="authToggle">Already have an account? Click "Log in".</div>
+    </div>
+  </div>
+
   <script>
     document.addEventListener("DOMContentLoaded", () => {
-      const WORKER_URL = "https://swearjar.goodwitchmery.workers.dev";
+      const API_BASE = "https://swearjar.goodwitchmery.workers.dev";
 
       const counterEl = document.getElementById("counter");
       const logEl = document.getElementById("log");
       const listenBtn = document.getElementById("listenBtn");
       const resetBtn = document.getElementById("resetBtn");
-      const userLabel = document.getElementById("username-label");
 
-      let currentUser = null;
-      let currentCount = 0;
+      // auth modal elements
+      const authOverlay = document.getElementById("authModalOverlay");
+      const authTitle = document.getElementById("authTitle");
+      const authDesc = document.getElementById("authDesc");
+      const authUser = document.getElementById("authUser");
+      const authPass = document.getElementById("authPass");
+      const authPass2 = document.getElementById("authPass2");
+      const authPass2Label = document.getElementById("authPass2Label");
+      const authError = document.getElementById("authError");
+      const authPrimaryBtn = document.getElementById("authPrimaryBtn");
+      const authSecondaryBtn = document.getElementById("authSecondaryBtn");
+      const authToggle = document.getElementById("authToggle");
+
       let recognizing = false;
       let recognition = null;
+      let currentCount = 0;
+      let currentUser = null;
+      let token = null;
+      let authMode = "register"; // or "login"
 
       const swearWords = [
-        "fuck","fucking","motherfucker","mf",
-        "shit","bullshit","bastard","bitch","slut","whore",
+        "fuck","fucking","motherfucker","mf","shit","bullshit","bastard","bitch","slut","whore",
         "ass","asshole","arse","arsehole","dick","dickhead","prick","cock","cocksucker",
         "cunt","twat","wanker","bollocks","bloody","damn","crap","jerk","douche","freak",
         "pussy","suck","sucks","sucker","fucker"
       ];
 
-      /* ---------- UI helpers ---------- */
-
       function setCount(n) {
-        currentCount = Number.isFinite(n) && n >= 0 ? n : 0;
+        currentCount = Number.isFinite(n) ? n : 0;
         counterEl.textContent = currentCount;
       }
 
@@ -115,143 +208,117 @@
         logEl.textContent = `[${ts}] ${msg}\n` + logEl.textContent;
       }
 
-      function requireUser() {
-        // spróbuj z localStorage
-        let u = localStorage.getItem("swearjarUser");
-        if (u && /^[a-z0-9_-]{3,32}$/i.test(u)) {
-          u = u.toLowerCase();
-          localStorage.setItem("swearjarUser", u);
-          return u;
-        }
-
-        // pytaj dopóki nie poda sensownego nicku lub nie anuluje
-        // (anulowanie = brak działania)
-        while (true) {
-          const input = prompt(
-            "Enter your nickname (3-32 letters/digits/_/-).\nEach nickname has its own swear jar."
-          );
-          if (input === null) {
-            alert("Nickname is required to use the swear jar.");
-            continue;
-          }
-          const cleaned = input.trim().toLowerCase();
-          if (/^[a-z0-9_-]{3,32}$/.test(cleaned)) {
-            localStorage.setItem("swearjarUser", cleaned);
-            return cleaned;
-          }
-          alert("Invalid nickname. Try again.");
+      function setSession(user, t) {
+        currentUser = user;
+        token = t;
+        if (user && t) {
+          localStorage.setItem("swearjar_user", user);
+          localStorage.setItem("swearjar_token", t);
+        } else {
+          localStorage.removeItem("swearjar_user");
+          localStorage.removeItem("swearjar_token");
         }
       }
 
-      function updateUserLabel() {
-        userLabel.textContent = currentUser
-          ? `Current jar: ${currentUser}`
-          : "";
-      }
-
-      /* ---------- Worker API ---------- */
-
-      async function fetchCountFromWorker() {
-        if (!currentUser) return;
-        try {
-          const r = await fetch(
-            `${WORKER_URL}/count?user=${encodeURIComponent(currentUser)}`,
-            { cache: "no-store" }
-          );
-          const j = await r.json();
-          if (typeof j.count === "number") {
-            setCount(j.count);
-            log(`Synced count from Worker: ${j.count}`);
-          } else {
-            setCount(0);
-            log("No count yet for this user. Starting from 0.");
-          }
-        } catch (e) {
-          console.error(e);
-          log("Could not load count from Worker.");
+      async function api(path, options = {}) {
+        const url = API_BASE + path;
+        const headers = options.headers || {};
+        if (token) {
+          headers["Authorization"] = "Bearer " + token;
         }
-      }
-
-      async function incrementOnWorker(delta) {
-        if (!currentUser || delta <= 0) return;
-        try {
-          const r = await fetch(`${WORKER_URL}/increment`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ user: currentUser, delta }),
-          });
-          const j = await r.json();
-          if (typeof j.count === "number") {
-            setCount(j.count);
-          } else {
-            setCount(currentCount + delta);
-          }
-        } catch (e) {
-          console.error(e);
-          setCount(currentCount + delta); // awaryjnie lokalnie
-          log("Error incrementing on Worker (using local value).");
+        if (options.body && !headers["Content-Type"]) {
+          headers["Content-Type"] = "application/json";
         }
-      }
-
-      async function resetOnWorker() {
-        if (!currentUser) return;
-        try {
-          const r = await fetch(`${WORKER_URL}/reset`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ user: currentUser }),
-          });
-          const j = await r.json();
-          setCount(typeof j.count === "number" ? j.count : 0);
-          log("Counter reset.");
-        } catch (e) {
-          console.error(e);
-          setCount(0);
-          log("Error resetting on Worker (reset locally).");
+        const res = await fetch(url, { ...options, headers });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.error || "API error");
         }
+        return data;
       }
-
-      /* ---------- Swear detection ---------- */
 
       function countSwearsIn(text) {
         let delta = 0;
         const lower = text.toLowerCase();
-
         for (const w of swearWords) {
-          const rx = new RegExp(
-            `\\b${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`,
-            "gi"
-          );
-          const matches = lower.match(rx);
-          if (matches) delta += matches.length;
+          const rx = new RegExp(`\\b${w.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}\\b`, "gi");
+          const m = lower.match(rx);
+          if (m) delta += m.length;
         }
-
         const stars = lower.match(/\*{3,}/g);
         if (stars) delta += stars.length;
-
         return delta;
       }
 
-      async function startRecognition() {
+      async function incrementCount(delta) {
+        if (!currentUser || !token) {
+          log("Not authenticated.");
+          return;
+        }
         try {
-          if (!("webkitSpeechRecognition" in window || "SpeechRecognition" in window)) {
-            log("Speech recognition is not supported in this browser.");
+          const j = await api("/increment", {
+            method: "POST",
+            body: JSON.stringify({ delta })
+          });
+          setCount(j.count);
+        } catch (e) {
+          console.error(e);
+          log("Error incrementing on server: " + e.message);
+        }
+      }
+
+      async function resetCount() {
+        if (!currentUser || !token) return;
+        try {
+          const j = await api("/reset", { method: "POST" });
+          setCount(j.count);
+          log("Counter reset.");
+        } catch (e) {
+          console.error(e);
+          log("Error resetting: " + e.message);
+        }
+      }
+
+      async function fetchMe() {
+        if (!token) return;
+        try {
+          const j = await api("/me");
+          if (j.user) {
+            currentUser = j.user;
+            setCount(j.count ?? 0);
+            log(`Synced count for ${j.user} from server.`);
+          }
+        } catch (e) {
+          console.warn("fetchMe failed:", e);
+        }
+      }
+
+      /**
+       * Speech recognition
+       */
+
+      async function startRecognition() {
+        if (!currentUser || !token) {
+          showAuthModal("login");
+          return;
+        }
+
+        try {
+          await navigator.mediaDevices.getUserMedia({ audio: true });
+
+          const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+          if (!SR) {
+            log("Speech recognition not supported in this browser.");
             return;
           }
 
-          log("Requesting microphone access...");
-          await navigator.mediaDevices.getUserMedia({ audio: true });
-          log("Microphone access granted.");
-
-          const SR =
-            window.SpeechRecognition || window.webkitSpeechRecognition;
           recognition = new SR();
           recognition.lang = "en-US";
           recognition.continuous = true;
           recognition.interimResults = false;
 
           recognition.onstart = () => {
-            log("🎧 Listening for English swears...");
+            log(`🎧 Listening for English swears for ${currentUser}...`);
           };
 
           recognition.onerror = (ev) => {
@@ -259,23 +326,17 @@
             log(`Recognition error: ${ev.error}`);
             if (
               recognizing &&
-              (ev.error === "no-speech" ||
-                ev.error === "network" ||
-                ev.error === "aborted")
+              (ev.error === "no-speech" || ev.error === "network" || ev.error === "aborted")
             ) {
-              try {
-                recognition.stop();
-                recognition.start();
-              } catch (_) {}
+              try { recognition.stop(); } catch {}
+              try { recognition.start(); } catch {}
             }
           };
 
           recognition.onend = () => {
             if (recognizing) {
-              log("Recognition ended, restarting…");
-              try {
-                recognition.start();
-              } catch (e) {
+              log("Recognition ended, restarting...");
+              try { recognition.start(); } catch (e) {
                 console.error(e);
                 log("Restart failed.");
               }
@@ -290,7 +351,7 @@
             const delta = countSwearsIn(text);
             if (delta > 0) {
               log(`🤬 Swear detected! +${delta}`);
-              await incrementOnWorker(delta);
+              await incrementCount(delta);
             }
           };
 
@@ -300,42 +361,155 @@
           listenBtn.textContent = "⏸️ Pause";
         } catch (err) {
           console.error(err);
-          log(`Start failed: ${err.message || err}`);
+          log("Start failed: " + (err.message || err));
         }
       }
 
       function stopRecognition() {
         recognizing = false;
-        try {
-          recognition && recognition.stop();
-        } catch (_) {}
+        try { recognition && recognition.stop(); } catch {}
         listenBtn.classList.remove("active");
         listenBtn.textContent = "🎙️ Start listening";
         log("Listening stopped.");
       }
 
-      /* ---------- Buttons ---------- */
-
       listenBtn.addEventListener("click", () => {
-        if (!currentUser) {
-          log("Set a nickname first.");
+        if (!currentUser || !token) {
+          showAuthModal("login");
           return;
         }
         recognizing ? stopRecognition() : startRecognition();
       });
 
       resetBtn.addEventListener("click", () => {
-        if (!currentUser) return;
-        resetOnWorker();
+        if (!currentUser || !token) {
+          showAuthModal("login");
+          return;
+        }
+        resetCount();
       });
 
-      /* ---------- Init ---------- */
+      /**
+       * Auth modal logic
+       */
 
-      currentUser = requireUser();
-      updateUserLabel();
-      setCount(0);
-      log("Click 'Start listening' to begin.");
-      fetchCountFromWorker();
+      function updateAuthUI() {
+        authError.textContent = "";
+        authUser.value = currentUser || authUser.value || "";
+        authPass.value = "";
+        authPass2.value = "";
+
+        if (authMode === "register") {
+          authTitle.textContent = "Create account";
+          authDesc.textContent = "Choose a unique streamer name and password.";
+          authPrimaryBtn.textContent = "Create account";
+          authSecondaryBtn.textContent = "Log in";
+          authToggle.textContent = "Already have an account? Click \"Log in\".";
+          authPass2Label.style.display = "block";
+        } else {
+          authTitle.textContent = "Log in";
+          authDesc.textContent = "Enter your streamer name and password.";
+          authPrimaryBtn.textContent = "Log in";
+          authSecondaryBtn.textContent = "Create new";
+          authToggle.textContent = "Need an account? Click \"Create new\".";
+          authPass2Label.style.display = "none";
+        }
+      }
+
+      function showAuthModal(mode) {
+        authMode = mode || authMode;
+        updateAuthUI();
+        authOverlay.style.display = "flex";
+        authUser.focus();
+      }
+
+      function hideAuthModal() {
+        authOverlay.style.display = "none";
+      }
+
+      authToggle.addEventListener("click", () => {
+        authMode = authMode === "register" ? "login" : "register";
+        updateAuthUI();
+      });
+
+      authSecondaryBtn.addEventListener("click", () => {
+        authMode = authMode === "register" ? "login" : "register";
+        updateAuthUI();
+      });
+
+      authPrimaryBtn.addEventListener("click", async () => {
+        const user = (authUser.value || "").toLowerCase().trim();
+        const pass = authPass.value || "";
+        const pass2 = authPass2.value || "";
+        authError.textContent = "";
+
+        if (!/^[a-z0-9_-]{3,32}$/.test(user)) {
+          authError.textContent = "Nick: a-z, 0-9, _ , -, min 3 chars.";
+          return;
+        }
+        if (!pass || pass.length < 4) {
+          authError.textContent = "Password: at least 4 characters.";
+          return;
+        }
+
+        try {
+          if (authMode === "register") {
+            if (pass !== pass2) {
+              authError.textContent = "Passwords do not match.";
+              return;
+            }
+            const res = await fetch(API_BASE + "/register", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ user, password: pass })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || "Registration failed");
+            setSession(data.user, data.token);
+            setCount(data.count ?? 0);
+            log(`Account created for ${data.user}.`);
+            hideAuthModal();
+          } else {
+            const res = await fetch(API_BASE + "/login", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ user, password: pass })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || "Login failed");
+            setSession(data.user, data.token);
+            setCount(data.count ?? 0);
+            log(`Logged in as ${data.user}.`);
+            hideAuthModal();
+          }
+        } catch (e) {
+          console.error(e);
+          authError.textContent = e.message;
+        }
+      });
+
+      // close modal on overlay click (optional)
+      authOverlay.addEventListener("click", (e) => {
+        if (e.target === authOverlay && currentUser && token) {
+          hideAuthModal();
+        }
+      });
+
+      /**
+       * Init: try existing session
+       */
+
+      (async function init() {
+        const savedUser = localStorage.getItem("swearjar_user");
+        const savedToken = localStorage.getItem("swearjar_token");
+        if (savedUser && savedToken) {
+          setSession(savedUser, savedToken);
+          await fetchMe();
+        } else {
+          log("Click 'Start listening' to begin.");
+          showAuthModal("register");
+        }
+      })();
     });
   </script>
 </body>
